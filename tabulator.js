@@ -58,10 +58,9 @@
 	paginationCurrentPage:1, // pagination page
 	paginationMaxPage:1, // pagination maxpage
 
-	progressiveRenderTimer:null, //timer for progressiver rendering
-	progressiveRenderFill:false, //initial fill of a progressive rendering table
 	progressiveRenderLoading:false, //flag to prevent concurrent progresive render loading
 	progressiveRenderLoadingNext:false, //flag to trigger loading of next items if list was loading when next request was triggered
+	paginationCurrentPageRemote:0,// handle current page of remote data loading
 
 	columnList:[], //an array of all acutal columns ignoring column groupings
 
@@ -496,12 +495,12 @@
 
 
 			//trigger progressive rendering on scroll
-			if(self.options.progressiveRender && scrollTop != holder.scrollTop() && scrollTop < holder.scrollTop()){
-				if(!self.progressiveRenderLoading){
-					if(holder[0].scrollHeight - holder.innerHeight() - holder.scrollTop() < self.options.progressiveRenderMargin){
+
+			if(self.options.progressiveRender && scrollTop < holder.scrollTop()){
+				if(self.table.outerHeight() - holder.scrollTop() - holder.innerHeight() < self.options.progressiveRenderMargin){
+					if(!self.progressiveRenderLoading){
 						if(self.options.progressiveRender == "remote"){
 							if(self.paginationCurrentPage <= self.paginationMaxPage){
-								self.progressiveRenderLoading = true;
 								self._renderTable(true);
 							}
 						}else{
@@ -510,9 +509,9 @@
 								self._renderTable(true);
 							}
 						}
+					}else{
+						self.progressiveRenderLoadingNext = true;
 					}
-				}else{
-					self.progressiveRenderLoadingNext = true;
 				}
 			}
 
@@ -1615,7 +1614,7 @@
 		var options = self.options;
 
 		if(typeof options.paginator == "function"){
-			var url = options.paginator(options.ajaxURL, self.paginationCurrentPage, options.paginationSize, options.ajaxParams);
+			var url = options.paginator(options.ajaxURL, self.paginationCurrentPageRemote || self.paginationCurrentPage, options.paginationSize, options.ajaxParams);
 			self._getAjaxData(url, {}, null, update);
 		}else{
 			var pageParams = {};
@@ -1624,7 +1623,7 @@
 			for (var attrname in options.ajaxParams) { pageParams[attrname] = options.ajaxParams[attrname]; }
 
 			//set page number
-		pageParams[options.paginationDataSent.page] = self.paginationCurrentPage;
+		pageParams[options.paginationDataSent.page] = self.paginationCurrentPageRemote || self.paginationCurrentPage;
 
 			//set page size if defined
 			if(options.paginationSize){
@@ -1731,11 +1730,20 @@
 
 					if(self.options.progressiveRender == "remote"){
 
-						if(self.progressiveRenderLoadingNext){
-							self.progressiveRenderLoadingNext = false;
-							self._renderTable(true);
-						}else{
-							self.progressiveRenderLoading = false;
+						// if(self.progressiveRenderLoadingNext){
+						// 	self.progressiveRenderLoadingNext = false;
+						// 	// self._renderTable(true);
+
+						// }else{
+						// 	self.progressiveRenderLoading = false;
+						// }
+						console.log("data", returnedData.data.length)
+						if(returnedData.data.length){
+							self.paginationCurrentPageRemote++;
+
+							if(self.paginationCurrentPageRemote <= self.paginationMaxPage){
+								self._getRemotePageData(true);
+							}
 						}
 					}
 
@@ -1802,9 +1810,9 @@
 				self.data = self.data.concat(mutatedData);
 				self.activeData = self.activeData.concat(mutatedData);
 
-				if(self.progressiveRenderFill){
-					self._renderTable(true);
-				}
+				// if(self.progressiveRenderFill){
+				// 	self._renderTable(true);
+				// }
 			}else{
 				self.data = mutatedData;
 
@@ -2273,8 +2281,6 @@
 
 		if(!progressiveRender){
 
-			clearTimeout(self.progressiveRenderTimer);
-
 			//get current left scroll position
 			hozScrollPos = self.tableHolder.scrollLeft();
 
@@ -2293,6 +2299,10 @@
 			}
 
 			progressiveRender = true;
+		}
+
+		if(progressiveRender){
+			self.progressiveRenderLoading = true;
 		}
 
 
@@ -2320,6 +2330,10 @@
 				$(".tabulator-group-body", group).append(row);
 
 			}else{
+				if(options.progressiveRender){
+					row.addClass("tabulator-rendering");
+				}
+
 				//if not grouping output row to table
 				self.table.append(row);
 			}
@@ -2379,24 +2393,37 @@
 
 		}
 
-		//align column widths
-		self._colRender(!self.firstRender);
 
-		//style table rows
-		self._styleRows();
-
-		if(progressiveRender && self.paginationCurrentPage < self.paginationMaxPage && self.tableHolder[0].scrollHeight <= self.tableHolder.innerHeight()){
-			self.progressiveRenderFill = true;
-
+		if(progressiveRender && self.paginationCurrentPage < self.paginationMaxPage && self.table.outerHeight() - self.tableHolder.scrollTop() - self.tableHolder.innerHeight() < self.options.progressiveRenderMargin){
+			console.log("progRend",  self.paginationCurrentPage)
 			//trigger progressive render to fill element
-			self.paginationCurrentPage++;
-			if(options.progressiveRender == "remote"){
-				self._getRemotePageData(true);
-			}else{
-				self._renderTable(true);
+			if(renderData.length){
+				self.paginationCurrentPage++;
 			}
+			setTimeout(function(){
+				self._renderTable(true);
+				console.log("nextpage", self.paginationCurrentPage);
+			}, 1)
+
 
 		}else{
+
+
+
+			if(options.progressiveRender){
+				self.paginationCurrentPage++;
+
+				self._colRender(!self.firstRender, false, true);
+				self._styleRows(false, true);
+
+				self.progressiveRenderLoading = false;
+				// self._getRemotePageData(true);
+			}else{
+				//align column widths
+				self._colRender(!self.firstRender);
+				//style table rows
+				self._styleRows();
+			}
 
 			//hide loader div
 			self._hideLoader(self);
@@ -2407,14 +2434,17 @@
 			}
 
 
-			if(options.progressiveRender == "remote"){
-				self.progressiveRenderFill = false;
-				self.paginationCurrentPage++;
-				self._getRemotePageData(true);
-			}
+
 		}
 
-		if(!progressiveRender){
+		if(progressiveRender){
+			self.table.css("margin-bottom", ((self.paginationMaxPage - self.paginationCurrentPage) * self.options.paginationSize) * $(".tabulator-row:first", self.table).outerHeight());
+
+			if(self.progressiveRenderLoadingNext){
+				self.progressiveRenderLoadingNext = false;
+				self._renderTable(true);
+			}
+		}else{
 			//get current left scroll position
 			self.tableHolder.scrollLeft(hozScrollPos);
 		}
@@ -2983,6 +3013,7 @@
 							self.setPage(1);
 						}else if(self.options.progressiveRender == "remote"){
 							self.paginationCurrentPage = 1;
+							self.paginationCurrentPageRemote = 1
 							self._getRemotePageData();
 						}else{
 							self._getAjaxData(self.options.ajaxURL, self.options.ajaxParams, self.options.ajaxConfig);
@@ -3361,12 +3392,14 @@
 },
 
 	//layout columns on first render
-	_colRender:function(fixedwidth, forceRedraw){
+	_colRender:function(fixedwidth, forceRedraw, update){
 		var self = this;
 		var options = self.options;
 		var table = self.table;
 		var header = self.header;
 		var element = self.element;
+
+		console.log("columns");
 
 		if(fixedwidth || !options.fitColumns){ //if columns have been resized and now data needs to match them
 			if(options.responsiveLayout){
@@ -3376,7 +3409,7 @@
 			//free sized table
 			$.each(self.columnList, function(i, column){
 				var colWidth = $(".tabulator-col[data-index='" + column.index + "']", element).outerWidth();
-				var col = $(".tabulator-cell[data-index='" + column.index + "']", element);
+				var col = $( (update ? ".tabulator-rendering " : "") +  ".tabulator-cell[data-index='" + column.index + "']", element);
 				col.css({width:colWidth});
 			});
 		}else{
@@ -3707,13 +3740,18 @@
 	////////////////// Row Styling //////////////////
 
 	//style rows of the table
-	_styleRows:function(minimal){
+	_styleRows:function(minimal, update){
 		var self = this;
 
+		console.log("rows");
+
+		var rows = $(".tabulator-row" + (update ? ".tabulator-rendering" : ""), self.table);
+
 		if(!minimal){
+
 			//hover over rows
 			if(self.options.selectable !== false){
-				$(".tabulator-row", self.table).each(function(){
+				rows.each(function(){
 					var row = $(this);
 
 					if(self.options.selectableCheck(row.data("data"), row)){
@@ -3724,12 +3762,12 @@
 
 				});
 			}else{
-				$(".tabulator-row", self.tableHolder).removeClass("tabulator-selectable");
+				rows.removeClass("tabulator-selectable");
 			}
 
 			//apply row formatter
 			if(self.options.rowFormatter){
-				$(".tabulator-row", self.table).each(function(){
+				rows.each(function(){
 					//allow row contents to be replaced with custom DOM elements
 					var newRow = self.options.rowFormatter($(this), $(this).data("data"));
 
@@ -3742,10 +3780,21 @@
 
 		//resize cells vertically to fit row contents
 		if(self.element.is(":visible")){
-			$(".tabulator-row", self.table).each(function(){
-				$(".tabulator-cell, .tabulator-row-handle", $(this)).css({"height":$(this).innerHeight() + "px"});
+			rows.each(function(){
+				var row = $(this);
+
+				setTimeout(function(){
+					$(".tabulator-cell, .tabulator-row-handle", row).css({"height":row.innerHeight() + "px"});
+				}, 10);
+
 			});
 		}
+
+		if(update){
+			rows.removeClass("tabulator-rendering")
+		}
+
+		console.log("rows done")
 
 		//trigger callbacks
 		self.options.renderComplete();
