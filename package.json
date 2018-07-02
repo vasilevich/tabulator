@@ -1,5 +1,5 @@
 {
-  "name": "jquery.tabulator",
+  "name": "tabulator",
   "version": "2.12.0",
   "description": "Interactive table generation plugin for jQuery UI",
   "main": "tabulator.js",
